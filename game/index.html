@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emberfall Clash</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="hud">
+  <div class="hud-row"><span class="hud-label">You</span> <span id="hud-player-life">20</span> HP
+    <span class="bar"><span id="bar-player" class="bar-fill you"></span></span></div>
+  <div class="hud-row"><span class="hud-label">Warden</span> <span id="hud-foe-life">20</span> HP
+    <span class="bar"><span id="bar-foe" class="bar-fill foe"></span></span></div>
+  <div class="hud-row">Round <span id="hud-round">1</span></div>
+  <div id="hud-stance" class="hud-small"></div>
+  <div id="hud-message" class="hud-small"></div>
+  <button id="btn-mute" type="button">Sound: on</button>
+</div>
+
+<div id="table">
+  <div id="foe-hand" class="hand foe-hand" aria-label="Opponent hand"></div>
+  <div id="clash-zone">
+    <div id="clash-foe" class="clash-row"></div>
+    <div id="readout-foe" class="readout foe-readout"></div>
+    <div id="clash-divider">&#9876;</div>
+    <div id="readout-player" class="readout you-readout"></div>
+    <div id="clash-player" class="clash-row"></div>
+  </div>
+  <div id="player-hand" class="hand player-hand" aria-label="Your hand"></div>
+  <button id="btn-clash" type="button" disabled>Clash</button>
+</div>
+
+<div id="screen-title" class="screen visible">
+  <h1>Emberfall Clash</h1>
+  <p class="tagline">Out-clash the Ashen Warden. First to fall loses.</p>
+  <div class="legend">
+    <span style="--el-hue:#e8542f">&#9650; Ember beats Leaf</span>
+    <span style="--el-hue:#2f7fe8">&#9679; Tide beats Ember</span>
+    <span style="--el-hue:#2fa84f">&#9670; Leaf beats Tide</span>
+    <span style="--el-hue:#d99a26">&#9632; Stone hardens (+2 each)</span>
+  </div>
+  <p class="rules-line">Each round play 1-3 cards. Combos stack: Pair +4, Surge +5, Chain +6, Resonance +4.
+  Click cards or press 1-6, then Clash (Enter). M mutes.</p>
+  <button id="btn-start" type="button">Start duel</button>
+</div>
+
+<div id="screen-win" class="screen">
+  <h1 class="win-title">Victory</h1>
+  <p id="win-detail" class="tagline"></p>
+  <button id="btn-again-win" type="button">Play again</button>
+</div>
+
+<div id="screen-loss" class="screen">
+  <h1 class="loss-title">Defeat</h1>
+  <p id="loss-detail" class="tagline"></p>
+  <button id="btn-again-loss" type="button">Try again</button>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
