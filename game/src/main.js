@@ -1,182 +1,155 @@
-// Emberfall Clash — game state machine and input (mouse clicks + keyboard).
-import { buildDeck, shuffleDeck, drawCards, refillHand, STARTING_LIFE, elementById } from "./deck.js";
-import { resolveRound, checkWinner, majorityElement } from "./rules.js";
-import { chooseOpponentPlay, opponentStance } from "./opponent.js";
+// Emberfall Duel — game flow, input and the demo states used for screenshots.
+
+import { buildDeck, cardById, drawCards } from './deck.js';
 import {
-  renderPlayerHand, renderOpponentHand, renderClashZone, updateLifeTotals,
-  showScreen, setMessage, setStanceLine, setClashReadout,
-} from "./render-table.js";
-import { dealAnimation, flipCards, snapIntoClash, damageShake, winFlourish } from "./animations.js";
+  HAND_SIZE, newDuelState, playHeroCard, resolveFoeMove, startHeroTurn,
+} from './rules.js';
+import { chooseIntent, intentLine, moveCard } from './ai.js';
 import {
-  playDrawSound, playPickSound, playClashSound, playHurtSound,
-  playWinSound, playLoseSound, playDealSound, toggleMute,
-} from "./sound.js";
+  hideOverlay, renderArena, renderHands, renderHud, setLog, showOverlay,
+} from './render.js';
+import {
+  isMuted, soundFoeHit, soundGuard, soundHeal, soundHit, soundLose,
+  soundPlay, soundWin, toggleMute,
+} from './sound.js';
 
-const MAX_PLAY = 3;
+const rng = Math.random;
+let state = null;
+let intent = null;
+let foeShown = null;
 
-const state = {
-  deck: [], discard: [],
-  playerHand: [], foeHand: [],
-  picked: new Set(),
-  playerLife: STARTING_LIFE, foeLife: STARTING_LIFE,
-  round: 1, busy: false, lastPlayerLean: null, over: false,
-};
-
-function el(id) { return document.getElementById(id); }
-
-function refreshHands(animate) {
-  renderPlayerHand(el("player-hand"), state.playerHand, state.picked, togglePick);
-  renderOpponentHand(el("foe-hand"), state.foeHand);
-  updateLifeTotals(state.playerLife, state.foeLife, state.round);
-  if (animate) {
-    dealAnimation([...el("player-hand").children]);
-    dealAnimation([...el("foe-hand").children]);
-  }
+function refresh(banner, combo) {
+  renderHud(state, intentLine(intent));
+  renderHands(state, playIndex);
+  renderArena(state.lastClash ? state.lastClash.card : null, foeShown, banner, combo);
 }
 
-function togglePick(uid) {
-  if (state.busy || state.over) return;
-  if (state.picked.has(uid)) state.picked.delete(uid);
-  else {
-    if (state.picked.size >= MAX_PLAY) { setMessage("A clash holds at most 3 cards."); return; }
-    state.picked.add(uid);
-  }
-  playPickSound();
-  refreshHands(false);
-  el("btn-clash").disabled = state.picked.size === 0;
+function freshDuel() {
+  state = newDuelState(buildDeck(rng), buildDeck(rng));
+  let drawn = drawCards(state.heroDeck, state.heroHand, HAND_SIZE);
+  state.heroDeck = drawn.deck; state.heroHand = drawn.hand;
+  drawn = drawCards(state.foeDeck, state.foeHand, HAND_SIZE);
+  state.foeDeck = drawn.deck; state.foeHand = drawn.hand;
+  intent = chooseIntent(state, rng);
+  foeShown = null;
+  state.lastClash = null;
 }
 
-function startMatch() {
-  state.deck = shuffleDeck(buildDeck());
-  state.discard = [];
-  state.playerHand = drawCards(state.deck, 6);
-  state.foeHand = drawCards(state.deck, 6);
-  state.picked = new Set();
-  state.playerLife = STARTING_LIFE; state.foeLife = STARTING_LIFE;
-  state.round = 1; state.busy = false; state.over = false; state.lastPlayerLean = null;
-  renderClashZone(el("clash-player"), [], true);
-  renderClashZone(el("clash-foe"), [], true);
-  setClashReadout("", "");
-  showScreen(null);
-  announceStance();
-  setMessage("Pick 1-3 cards, then press Clash (Enter).");
-  playDealSound();
-  refreshHands(true);
-}
-
-function announceStance() {
-  const stance = opponentStance(state.round);
-  setStanceLine("Ashen Warden: " + stance.label + " — " + stance.hint + ".");
-}
-
-function runClash() {
-  if (state.busy || state.over || state.picked.size === 0) return;
-  state.busy = true;
-  const playerCards = state.playerHand.filter((c) => state.picked.has(c.uid));
-  const stance = opponentStance(state.round);
-  const foeCards = chooseOpponentPlay(state.foeHand, stance, state.lastPlayerLean);
-  state.lastPlayerLean = majorityElement(playerCards);
-  // Cards leave the hands and land face-down in the clash zone.
-  state.playerHand = state.playerHand.filter((c) => !state.picked.has(c.uid));
-  const foeUids = new Set(foeCards.map((c) => c.uid));
-  state.foeHand = state.foeHand.filter((c) => !foeUids.has(c.uid));
-  state.picked = new Set();
-  renderClashZone(el("clash-player"), playerCards, false);
-  renderClashZone(el("clash-foe"), foeCards, false);
-  [...el("clash-player").children, ...el("clash-foe").children].forEach(snapIntoClash);
-  refreshHands(false);
-  playDrawSound();
-  setMessage("The clash is set…");
-  setTimeout(() => revealClash(playerCards, foeCards), 650);
-}
-
-function revealClash(playerCards, foeCards) {
-  renderClashZone(el("clash-player"), playerCards, true);
-  renderClashZone(el("clash-foe"), foeCards, true);
-  flipCards([...el("clash-player").children, ...el("clash-foe").children]);
-  const result = resolveRound(playerCards, foeCards);
-  playClashSound();
-  setClashReadout(
-    "You " + result.pPower + (result.pNotes.length ? " (" + result.pNotes.join(", ") + ")" : ""),
-    "Warden " + result.fPower + (result.fNotes.length ? " (" + result.fNotes.join(", ") + ")" : "")
-  );
-  state.playerLife -= result.playerDamage;
-  state.foeLife -= result.foeDamage;
-  if (result.playerDamage > 0) { playHurtSound(); damageShake(el("table")); setMessage("The Warden's clash lands for " + result.playerDamage + "."); }
-  else if (result.foeDamage > 0) setMessage("Your clash lands for " + result.foeDamage + "!");
-  else setMessage("A drawn clash — nobody bleeds.");
-  updateLifeTotals(state.playerLife, state.foeLife, state.round);
-  state.discard.push(...playerCards, ...foeCards);
-  setTimeout(() => finishRound(), 1100);
-}
-
-function finishRound() {
-  const winner = checkWinner(state.playerLife, state.foeLife);
-  if (winner) { endMatch(winner); return; }
-  refillHand(state.playerHand, state.deck, state.discard);
-  refillHand(state.foeHand, state.deck, state.discard);
-  state.round++;
-  state.busy = false;
-  el("btn-clash").disabled = true;
-  announceStance();
-  setMessage("Round " + state.round + " — pick 1-3 cards.");
-  playDealSound();
-  refreshHands(true);
-}
-
-function endMatch(winner) {
-  state.over = true; state.busy = false;
-  if (winner === "player") {
-    el("win-detail").textContent = "The Ashen Warden falls in round " + state.round + ". Your life: " + state.playerLife + ".";
-    showScreen("screen-win");
-    playWinSound();
-    winFlourish(el("table"));
+function playIndex(index) {
+  if (!state || state.phase !== 'hero') return;
+  const card = state.heroHand[index];
+  if (!card || card.cost > state.energy) { setLog('Not enough energy for that card.'); return; }
+  const result = playHeroCard(state, index);
+  state = result.state;
+  const clash = result.clash;
+  soundPlay();
+  let banner;
+  if (card.kind === 'strike') {
+    banner = clash.dealt > 0
+      ? `${card.name} hits for ${clash.dealt}${clash.blocked ? ` (${clash.blocked} blocked)` : ''}!`
+      : `${card.name} — fully blocked!`;
+    if (clash.dealt > 0) soundHit();
+  } else if (card.kind === 'guard') {
+    banner = `${card.name}: +${clash.gained} block`;
+    soundGuard();
+  } else if (card.kind === 'mend') {
+    banner = `${card.name}: healed ${clash.healed}`;
+    soundHeal();
   } else {
-    el("loss-detail").textContent = "The Ashen Warden stands in round " + state.round + ". Its life: " + state.foeLife + ".";
-    showScreen("screen-loss");
-    playLoseSound();
+    banner = `${card.name}: +${clash.gained} energy`;
+    soundGuard();
   }
+  refresh(banner, clash.label ? `✦ ${clash.label} ✦` : '');
+  setLog(`Energy left: ${state.energy}. Play another card or end the turn.`);
+  if (state.phase === 'won') endDuel('win');
 }
 
-function onKey(ev) {
-  const key = ev.key.toLowerCase();
-  if (key === "m") { el("btn-mute").textContent = toggleMute() ? "Sound: off" : "Sound: on"; return; }
-  if (key === "enter") {
-    if (!el("screen-title").classList.contains("visible") && !state.over) runClash();
-    else startMatch();
-    return;
+function endTurn() {
+  if (!state || state.phase !== 'hero') return;
+  const result = resolveFoeMove(state, intent);
+  state = result.state;
+  foeShown = moveCard(intent);
+  const clash = result.clash;
+  let banner;
+  if (intent.kind === 'strike') {
+    banner = clash.dealt > 0
+      ? `Morvane strikes for ${clash.dealt}${clash.blocked ? ` (${clash.blocked} blocked)` : ''}!`
+      : 'Morvane strikes — fully blocked!';
+    if (clash.dealt > 0) { soundFoeHit(); document.getElementById('heroZone').classList.add('shake'); }
+  } else if (intent.kind === 'guard') {
+    banner = `Morvane guards: +${intent.power} block`;
+    soundGuard();
+  } else {
+    banner = `Morvane mends for ${intent.power}`;
+    soundHeal();
   }
-  if (/^[1-6]$/.test(key)) {
-    const card = state.playerHand[Number(key) - 1];
-    if (card) togglePick(card.uid);
-  }
+  setTimeout(() => document.getElementById('heroZone').classList.remove('shake'), 400);
+  if (state.phase === 'lost') { refresh(banner, ''); endDuel('loss'); return; }
+  state = startHeroTurn(state);
+  const drawn = drawCards(state.heroDeck, state.heroHand, Math.max(0, HAND_SIZE - state.heroHand.length));
+  state.heroDeck = drawn.deck; state.heroHand = drawn.hand;
+  intent = chooseIntent(state, rng);
+  refresh(banner, '');
+  setLog(`Round ${state.round}. ${intentLine(intent)} — plan your plays.`);
 }
 
-// Deterministic demo states for screenshots: ?shot=title|table|win|loss
-function applyShotMode() {
-  const shot = new URLSearchParams(location.search).get("shot");
-  if (!shot || shot === "title") { showScreen("screen-title"); return; }
-  startMatch();
-  if (shot === "table") {
-    state.picked = new Set(state.playerHand.slice(0, 2).map((c) => c.uid));
-    refreshHands(false);
-    el("btn-clash").disabled = false;
-    setMessage("Pick 1-3 cards, then press Clash (Enter).");
-  } else if (shot === "win") {
-    state.playerLife = 14; state.foeLife = 0; state.round = 7;
-    updateLifeTotals(state.playerLife, state.foeLife, state.round);
-    endMatch("player");
-  } else if (shot === "loss") {
-    state.playerLife = 0; state.foeLife = 11; state.round = 8;
-    updateLifeTotals(state.playerLife, state.foeLife, state.round);
-    endMatch("foe");
-  }
+function endDuel(kind) {
+  if (kind === 'win') soundWin(); else soundLose();
+  setTimeout(() => showOverlay(kind, state), 650);
 }
 
-el("btn-start").addEventListener("click", startMatch);
-el("btn-clash").addEventListener("click", runClash);
-el("btn-again-win").addEventListener("click", startMatch);
-el("btn-again-loss").addEventListener("click", startMatch);
-el("btn-mute").addEventListener("click", () => { el("btn-mute").textContent = toggleMute() ? "Sound: off" : "Sound: on"; });
-document.addEventListener("keydown", onKey);
-applyShotMode();
+// Fixed mid-duel tableau for the cover screenshot (#play): round 4, both
+// hands readable, a clash resolved in the arena, life totals mid-fight.
+function demoTableau() {
+  freshDuel();
+  state.round = 4;
+  state.heroHp = 14;
+  state.foeHp = 11;
+  state.heroBlock = 3;
+  state.foeBlock = 5;
+  state.energy = 2;
+  state.heroHand = ['tide-spear', 'thorn-briar', 'void-flare', 'ember-ward'].map(cardById);
+  state.foeHand = ['void-bolt', 'ember-maul', 'tide-wall', 'thorn-salve'].map(cardById);
+  state.lastClash = { card: cardById('ember-lancer'), bonus: 3, label: 'Suit Surge +3', dealt: 5, blocked: 5 };
+  foeShown = { ...cardById('thorn-aegis'), name: 'Warden Guard', power: 5 };
+  intent = { kind: 'strike', power: 7, text: 'will strike for 7' };
+  refresh('CLASH: 7 + 3 surge − 5 block = 5 damage!', '✦ Suit Surge +3 — two Ember cards ✦');
+  setLog('Round 4 · Morvane will strike for 7 — your block is 3. Play a guard or finish him.');
+}
+
+function demoEnd(kind) {
+  freshDuel();
+  state.round = 6;
+  if (kind === 'win') { state.foeHp = 0; state.heroHp = 9; } else { state.heroHp = 0; state.foeHp = 8; }
+  state.heroHand = ['ember-dart', 'tide-mend', 'void-bolt'].map(cardById);
+  state.foeHand = ['ember-maul', 'thorn-ram'].map(cardById);
+  intent = { kind: 'strike', power: 7, text: 'will strike for 7' };
+  refresh(kind === 'win' ? 'Ember Maul lands the final blow!' : 'Warden Strike breaks through!', '');
+  showOverlay(kind, state);
+}
+
+function start() {
+  freshDuel();
+  hideOverlay();
+  refresh('Your move — read the intent, then strike', '');
+  setLog('Click a card (or keys 1–5). Chain same suits for Suit Surge. Space ends the turn.');
+}
+
+document.getElementById('endTurnBtn').addEventListener('click', endTurn);
+document.getElementById('overlayBtn').addEventListener('click', start);
+document.getElementById('muteBtn').addEventListener('click', () => {
+  const muted = toggleMute();
+  document.getElementById('muteBtn').textContent = muted ? 'Sound: off' : 'Sound: on';
+});
+window.addEventListener('keydown', (e) => {
+  if (e.key === ' ') { e.preventDefault(); endTurn(); }
+  else if (e.key >= '1' && e.key <= '5') playIndex(Number(e.key) - 1);
+  else if (e.key.toLowerCase() === 'm') document.getElementById('muteBtn').click();
+  else if (e.key === 'Enter' && !document.getElementById('overlay').classList.contains('hidden')) start();
+});
+
+const demo = location.hash.replace('#', '');
+if (demo === 'play') demoTableau();
+else if (demo === 'win') demoEnd('win');
+else if (demo === 'loss') demoEnd('loss');
+else { freshDuel(); refresh('Your move — read the intent, then strike', ''); showOverlay('title', state); }

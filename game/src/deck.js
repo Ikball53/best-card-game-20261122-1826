@@ -1,57 +1,58 @@
-// Emberfall Clash — deck construction and drawing.
-// Four elements, each told apart by colour AND shape so a card reads at thumbnail size.
-export const ELEMENTS = [
-  { id: "ember", label: "Ember", glyph: "\u25B2", hue: "#e8542f", beats: "leaf" },
-  { id: "tide", label: "Tide", glyph: "\u25CF", hue: "#2f7fe8", beats: "ember" },
-  { id: "leaf", label: "Leaf", glyph: "\u25C6", hue: "#2fa84f", beats: "tide" },
-  { id: "stone", label: "Stone", glyph: "\u25A0", hue: "#d99a26", beats: null },
+// Card pool and deck building for Emberfall Duel.
+// Four suits, each told apart by colour AND shape: Ember (red triangle),
+// Tide (blue circle), Thorn (green diamond), Void (purple star).
+
+export const SUITS = {
+  ember: { name: 'Ember', glyph: '▲', colour: '#e5482e' },
+  tide: { name: 'Tide', glyph: '●', colour: '#2e7fe5' },
+  thorn: { name: 'Thorn', glyph: '◆', colour: '#3fae4a' },
+  void: { name: 'Void', glyph: '★', colour: '#9b4de5' },
+};
+
+// kind: strike (damage), guard (block), mend (heal), surge (extra energy)
+const POOL = [
+  { id: 'ember-lancer', name: 'Ember Lancer', suit: 'ember', kind: 'strike', cost: 2, power: 7, art: '♞' },
+  { id: 'ember-dart', name: 'Ember Dart', suit: 'ember', kind: 'strike', cost: 1, power: 4, art: '➶' },
+  { id: 'ember-maul', name: 'Ember Maul', suit: 'ember', kind: 'strike', cost: 3, power: 10, art: '⚒' },
+  { id: 'ember-ward', name: 'Ember Ward', suit: 'ember', kind: 'guard', cost: 1, power: 5, art: '🛡' },
+  { id: 'tide-spear', name: 'Tide Spear', suit: 'tide', kind: 'strike', cost: 2, power: 6, art: '♜' },
+  { id: 'tide-surge', name: 'Tide Surge', suit: 'tide', kind: 'surge', cost: 0, power: 2, art: '≈' },
+  { id: 'tide-mend', name: 'Tide Mend', suit: 'tide', kind: 'mend', cost: 2, power: 6, art: '✚' },
+  { id: 'tide-wall', name: 'Tide Wall', suit: 'tide', kind: 'guard', cost: 2, power: 8, art: '▦' },
+  { id: 'thorn-briar', name: 'Thorn Briar', suit: 'thorn', kind: 'strike', cost: 1, power: 5, art: '♣' },
+  { id: 'thorn-aegis', name: 'Thorn Aegis', suit: 'thorn', kind: 'guard', cost: 1, power: 6, art: '⬟' },
+  { id: 'thorn-salve', name: 'Thorn Salve', suit: 'thorn', kind: 'mend', cost: 1, power: 4, art: '❀' },
+  { id: 'thorn-ram', name: 'Thorn Ram', suit: 'thorn', kind: 'strike', cost: 3, power: 9, art: '♟' },
+  { id: 'void-bolt', name: 'Void Bolt', suit: 'void', kind: 'strike', cost: 2, power: 8, art: '⚡' },
+  { id: 'void-shroud', name: 'Void Shroud', suit: 'void', kind: 'guard', cost: 2, power: 7, art: '☾' },
+  { id: 'void-drain', name: 'Void Drain', suit: 'void', kind: 'mend', cost: 3, power: 9, art: '☠' },
+  { id: 'void-flare', name: 'Void Flare', suit: 'void', kind: 'surge', cost: 1, power: 3, art: '✦' },
 ];
 
-export const RANK_NAMES = ["Spark", "Kindle", "Flare", "Blaze", "Pyre", "Storm", "Surge", "Tempest", "Crown", "Warden"];
-export const HAND_SIZE = 6;
-export const STARTING_LIFE = 20;
-
-export function elementById(id) {
-  return ELEMENTS.find((e) => e.id === id);
+export function cardById(id) {
+  const found = POOL.find((c) => c.id === id);
+  if (!found) throw new Error(`unknown card ${id}`);
+  return { ...found };
 }
 
-// A fresh 40-card deck: every element at every rank 1..10 (10 is the Warden).
-export function buildDeck() {
-  const cards = [];
-  let serial = 0;
-  for (const el of ELEMENTS) {
-    for (let rank = 1; rank <= 10; rank++) {
-      cards.push({ uid: "c" + serial++, element: el.id, rank, name: RANK_NAMES[rank - 1] });
-    }
-  }
-  return cards;
+export function buildDeck(rng) {
+  const deck = [];
+  for (const card of POOL) deck.push({ ...card }, { ...card });
+  return shuffle(deck, rng);
 }
 
-// Fisher-Yates shuffle driven by an injectable random source (seedable for tests).
-export function shuffleDeck(deck, rand = Math.random) {
-  const out = deck.slice();
+export function shuffle(cards, rng) {
+  const out = [...cards];
   for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1));
-    const tmp = out[i]; out[i] = out[j]; out[j] = tmp;
+    const j = Math.floor(rng() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
   }
   return out;
 }
 
-// Draw up to n cards from the top of the deck (mutates deck, returns drawn cards).
-export function drawCards(deck, n) {
-  const drawn = [];
-  while (drawn.length < n && deck.length > 0) drawn.push(deck.pop());
-  return drawn;
-}
-
-// Top a hand back up to HAND_SIZE, reshuffling the discard pile when the deck runs dry.
-export function refillHand(hand, deck, discard, rand = Math.random) {
-  while (hand.length < HAND_SIZE) {
-    if (deck.length === 0) {
-      if (discard.length === 0) break;
-      deck.push(...shuffleDeck(discard.splice(0), rand));
-    }
-    hand.push(...drawCards(deck, 1));
-  }
-  return hand;
+export function drawCards(deck, hand, count) {
+  const nextDeck = [...deck];
+  const nextHand = [...hand];
+  for (let n = 0; n < count && nextDeck.length > 0; n++) nextHand.push(nextDeck.pop());
+  return { deck: nextDeck, hand: nextHand };
 }

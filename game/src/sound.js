@@ -1,39 +1,50 @@
-// Emberfall Clash — tiny WebAudio bleeps, one per event, with a mute switch.
-let audioCtx = null;
+// Tiny WebAudio synth: card snaps, hits, heals and the win flourish.
+// No audio files — every sound is a few oscillators.
+
+let ctx = null;
 let muted = false;
 
-export function isMuted() { return muted; }
-export function toggleMute() { muted = !muted; return muted; }
-
-function ensureContext() {
-  if (!audioCtx) {
+function ensureCtx() {
+  if (!ctx) {
     const AC = window.AudioContext || window.webkitAudioContext;
-    if (AC) audioCtx = new AC();
+    if (!AC) return null;
+    ctx = new AC();
   }
-  if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
-  return audioCtx;
+  if (ctx.state === 'suspended') ctx.resume();
+  return ctx;
 }
 
-function blip(freq, dur, type = "sine", gain = 0.08, when = 0) {
+function tone(freq, dur, type, gain, when = 0, slideTo = null) {
   if (muted) return;
-  const ctx = ensureContext();
-  if (!ctx) return;
-  const t = ctx.currentTime + when;
-  const osc = ctx.createOscillator();
-  const amp = ctx.createGain();
+  const ac = ensureCtx();
+  if (!ac) return;
+  const t0 = ac.currentTime + when;
+  const osc = ac.createOscillator();
+  const amp = ac.createGain();
   osc.type = type;
-  osc.frequency.setValueAtTime(freq, t);
-  amp.gain.setValueAtTime(gain, t);
-  amp.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  osc.connect(amp).connect(ctx.destination);
-  osc.start(t);
-  osc.stop(t + dur);
+  osc.frequency.setValueAtTime(freq, t0);
+  if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
+  amp.gain.setValueAtTime(gain, t0);
+  amp.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(amp).connect(ac.destination);
+  osc.start(t0);
+  osc.stop(t0 + dur + 0.02);
 }
 
-export function playDrawSound() { blip(660, 0.08, "triangle"); }
-export function playPickSound() { blip(880, 0.06, "sine"); }
-export function playClashSound() { blip(180, 0.16, "sawtooth", 0.1); blip(120, 0.2, "square", 0.06, 0.05); }
-export function playHurtSound() { blip(140, 0.22, "sawtooth", 0.09); }
-export function playWinSound() { [523, 659, 784, 1046].forEach((f, i) => blip(f, 0.18, "triangle", 0.09, i * 0.11)); }
-export function playLoseSound() { [392, 330, 262, 196].forEach((f, i) => blip(f, 0.2, "triangle", 0.09, i * 0.12)); }
-export function playDealSound() { blip(440, 0.05, "triangle", 0.05); }
+export function soundPlay() { tone(520, 0.09, 'triangle', 0.12, 0, 760); }
+export function soundHit() { tone(180, 0.16, 'sawtooth', 0.16, 0, 70); }
+export function soundGuard() { tone(300, 0.12, 'square', 0.07); }
+export function soundHeal() { tone(660, 0.18, 'sine', 0.1, 0, 990); }
+export function soundFoeHit() { tone(140, 0.18, 'sawtooth', 0.16, 0, 60); }
+export function soundWin() {
+  [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.22, 'triangle', 0.13, i * 0.11));
+}
+export function soundLose() {
+  [392, 330, 262, 196].forEach((f, i) => tone(f, 0.24, 'triangle', 0.12, i * 0.13));
+}
+
+export function toggleMute() {
+  muted = !muted;
+  return muted;
+}
+export function isMuted() { return muted; }
